@@ -1,0 +1,94 @@
+name: Docker
+
+on:
+  push:
+    # Publish `master` as Docker `latest` image.
+    branches:
+    - master
+
+    # Publish `v1.2.3` tags as releases.
+    tags:
+      - v*
+
+  # Run tests for any PRs.
+  pull_request:
+
+env:
+  REPO_NAME: u2illc/aws-cli
+  IMAGE_NAME: aws-cli
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Run tests
+        run: |
+          docker build . --file Dockerfile
+
+  github-push:
+    # Ensure test job passes before pushing image.
+    needs: test
+
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Build image v1
+        run: docker build . --file Dockerfile --tag ${REPO_NAME}:v1 --target v1
+
+      - name: Build image v2
+        run: docker build . --file Dockerfile --tag ${REPO_NAME}:v2 --target v2
+
+      - name: Log into Github registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login docker.pkg.github.com -u ${{ github.actor }} --password-stdin
+
+      - name: Push image
+        run: |
+          docker tag ${REPO_NAME}:v1 docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:v1
+          docker tag ${REPO_NAME}:v2 docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:v2
+          docker tag ${REPO_NAME}:v2 docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:latest
+
+          docker push docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:v1
+          docker push docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:v2
+          docker push docker.pkg.github.com/${{ github.repository }}/$IMAGE_NAME:latest
+
+  dockerhub-push:
+    # Ensure test job passes before pushing image.
+    needs: test
+
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Publish v1 to Registry
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: ${REPO_NAME}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          tags: v1
+          buildargs: --target v1
+      - name: Publish v2 to Registry
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: ${REPO_NAME}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          tags: v2
+          buildargs: --target v2
+      - name: Publish latest to Registry
+        uses: elgohr/Publish-Docker-Github-Action@master
+        with:
+          name: ${REPO_NAME}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          tags: latest
+          buildargs: --target v2
+  
+  
